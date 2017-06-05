@@ -189,90 +189,70 @@ exports.check = function (req, res, next) {
 
 
 
+//GET /quizzes/randomplay
+exports.randomplay = function (req, res, next) {
 
-exports.randomplay =  function(req, res, next){
-    if(req.session.checkit == undefined)
-        req.session.checkit = true;
+    if (!req.session.score) req.session.score = 0;
+    if (!req.session.questions) req.session.questions = [-1];
 
+    models.Quiz.count()
+    .then(function(count) {
 
-	if(!req.session.checkit || req.session.score == undefined ){
-		req.session.score = 0;
-        req.session.index = [0];
-	}
+        return models.Quiz.findAll({
+            where: { id: { $notIn: req.session.questions } }
+        })
 
+    })
+    .then(function(quizzes) {
+	var quizID = -1;
 
-    req.session.checkit = false;
-
-    models.Quiz.findOne({
-        order: [
-            Sequelize.fn( 'RANDOM' ),
-        ],
-         where:{
-            id:{
-                $notIn: req.session.index
-            }
-
+        if (quizzes.length > 0) {
+            var random = parseInt(Math.random() * quizzes.length);
+            quizID = quizzes[random].id;
+        } else {
+            res.render('quizzes/random_nomore', {
+                score: req.session.score
+            });
         }
+
+        return models.Quiz.findById(quizID);
+
+    })
+    .then(function(quiz) {
+        if (quiz) {
+            req.session.questions.push(quiz.id);
+            res.render('quizzes/random_play', {
+                quiz: quiz,
+                score: req.session.score
+            });
+        }
+    })
+    .catch(function(error) {
+        req.flash('error', 'Hubo error al cargar el Quiz: ' + error.message);
+        next(error);
+    });
+};
+
+//GET /quizzes/randomcheck/:quizId
+exports.randomcheck = function (req, res, next) {
+
+    var answer = req.query.answer || "";
+
+    var result = answer.trim() === req.quiz.answer.trim();
+
+    if (result) {
+        req.session.score++;
     }
 
-    )
-    .then(function(quiz){
-            if(quiz == null){
-                var error={
-                    status : "Verifica tu base de datos",
-                    stack : "---"
-               }
-
-                res.render("error",{
-                    message: "NO HAY ELEMENTOS EN LA BASE DE DATOS",
-                    error: error
-                });
-            }
-
-            req.session.index = req.session.index.concat(quiz.id);
-            console.log(req.session.index);
-            res.render("random_play",{
-            score: req.session.score,
-            quiz: quiz }
-        );
-
+    else {
+       req.session.score=0;
+req.session.questions = [-1];
+}
+    res.render('quizzes/random_result', {
+        score: req.session.score,
+        result: result,
+        answer: answer
     });
-
-
 };
 
-exports.randomcheck = function(req, res, next){
-	var answer = req.query.answer || "";
-	var score = req.session.score;
-
-    var result = answer.toLowerCase().trim() === req.quiz.answer.toLowerCase().trim();
-
-
-    models.Quiz.count({}).then(function(n){
-	    if(result){
-	    	req.session.score++;
-	    	score=req.session.score;
-	    }
-	    else{
-	    	req.session.score=0;
-	    	req.session.index =[];
-	    }
-
-	    if(score < n){
-	        req.session.checkit = true;
-	        res.render('random_result', {
-	    		score: score,
-	    		result: result,
-	            answer: answer
-	        });
-	    }
-	    else{
-	        res.render("random_nomore", {
-	            score: score
-	        });
-	    }
-
-    });
-
-};
 
