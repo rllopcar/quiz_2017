@@ -171,8 +171,7 @@ exports.play = function (req, res, next) {
         quiz: req.quiz,
         answer: answer
     });
-};
-
+}
 
 // GET /quizzes/:quizId/check
 exports.check = function (req, res, next) {
@@ -189,78 +188,91 @@ exports.check = function (req, res, next) {
 };
 
 
-exports.randomPlay = function(req, res, next){
 
-  if(!req.session.score){
-    req.session.score = 0;
-    req.session.respondidas = [];
-    req.session.respondidas[0] = 0;
-  }
 
-    var comprobar = true;
-    var contador = 0;
-    
-    while(comprobar){
-        
-        var qId = Math.floor(Math.random()*4 + 1);
-            
-        for(var i in req.session.respondidas){
-            if(qId == req.session.respondidas[i]){
-                ++contador;
+exports.randomplay =  function(req, res, next){
+    if(req.session.checkit == undefined)
+        req.session.checkit = true;
+
+
+	if(!req.session.checkit || req.session.score == undefined ){
+		req.session.score = 0;
+        req.session.index = [0];
+	}
+
+
+    req.session.checkit = false;
+
+    models.Quiz.findOne({
+        order: [
+            Sequelize.fn( 'RANDOM' ),
+        ],
+         where:{
+            id:{
+                $notIn: req.session.index
             }
+
         }
-
-        if(contador != 0){contador=0;}
-        else{comprobar = false;}
     }
 
-  req.session.respondidas.push(qId);
-  models.Quiz.findById(qId)
-  .then(function (quiz) {
-      if (quiz) {
-          var q = quiz;
-          res.render('quizzes/random_play',{
-            quiz: q,
-            score: req.session.score
-          });
-      } else {
-          throw new Error('No existe ningún quiz con id =' + qId);
-      }
-  })
-  .catch(function (error) {
-      next(error);
-  });
-  
+    )
+    .then(function(quiz){
+            if(quiz == null){
+                var error={
+                    status : "Verifica tu base de datos",
+                    stack : "---"
+               }
+
+                res.render("error",{
+                    message: "NO HAY ELEMENTOS EN LA BASE DE DATOS",
+                    error: error
+                });
+            }
+
+            req.session.index = req.session.index.concat(quiz.id);
+            console.log(req.session.index);
+            res.render("random_play",{
+            score: req.session.score,
+            quiz: quiz }
+        );
+
+    });
+
+
 };
 
-exports.randomCheck = function (req, res, next){
+exports.randomcheck = function(req, res, next){
+	var answer = req.query.answer || "";
+	var score = req.session.score;
 
-var answer = req.query.answer || "";
+    var result = answer.toLowerCase().trim() === req.quiz.answer.toLowerCase().trim();
 
-  var result = answer.toLowerCase().trim() === req.quiz.answer.toLowerCase().trim();
 
-  if(!result){
-    req.session.score = 0;
-    req.session.respondidas = [];
-    console.log("Reiniciando score...");
-  } else{
-    req.session.score++;
-    console.log("Aumentando score, ahora vale " + req.session.score);
-    if(req.session.respondidas.length > 4){
-      scoreFinal = req.session.score;
-      console.log("Abriendo vista de completado...");
-      req.session.score = 0;
-      req.session.respondidas = [];
-      res.render("quizzes/random_nomore", {
-        score: scoreFinal
-      });
-      return;
-    }
-  }
-  res.render("quizzes/random_result", {
-      result: result,
-      answer: answer,
-      score: req.session.score
-  });
-  
+    models.Quiz.count({}).then(function(n){
+	    if(result){
+	    	req.session.score++;
+	    	score=req.session.score;
+	    }
+	    else{
+	    	req.session.score=0;
+	    	req.session.index =[];
+	    }
+
+	    if(score < n){
+	        req.session.checkit = true;
+	        res.render('random_result', {
+	    		score: score,
+	    		result: result,
+	            answer: answer
+	        });
+	    }
+	    else{
+	        res.render("random_nomore", {
+	            score: score
+	        });
+	    }
+
+    });
+
 };
+
