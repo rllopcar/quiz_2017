@@ -187,7 +187,7 @@ exports.check = function (req, res, next) {
     });
 };
 
-//Practica52
+
 exports.randomplay = function (req, res, next) {
 
     if(req.session.randomplay){
