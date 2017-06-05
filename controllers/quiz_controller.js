@@ -6,12 +6,7 @@ var paginate = require('../helpers/paginate').paginate;
 // Autoload el quiz asociado a :quizId
 exports.load = function (req, res, next, quizId) {
 
-    models.Quiz.findById(quizId, {
-        include: [
-            {model: models.Tip, include: [{model: models.User, as : 'Author'}]},
-            {model: models.User, as: 'Author'}
-        ]
-    })
+    models.Quiz.findById(quizId)
     .then(function (quiz) {
         if (quiz) {
             req.quiz = quiz;
@@ -26,42 +21,17 @@ exports.load = function (req, res, next, quizId) {
 };
 
 
-// MW que permite acciones solamente si al usuario logeado es admin o es el autor del quiz.
-exports.adminOrAuthorRequired = function(req, res, next){
-
-    var isAdmin  = req.session.user.isAdmin;
-    var isAuthor = req.quiz.AuthorId === req.session.user.id;
-
-    if (isAdmin || isAuthor) {
-        next();
-    } else {
-        console.log('Operación prohibida: El usuario logeado no es el autor del quiz, ni un administrador.');
-        res.send(403);
-    }
-};
-
-
 // GET /quizzes
 exports.index = function (req, res, next) {
 
-    var countOptions = {
-        where: {}
-    };
-
-    var title = "Preguntas";
+    var countOptions = {};
 
     // Busquedas:
     var search = req.query.search || '';
     if (search) {
         var search_like = "%" + search.replace(/ +/g,"%") + "%";
 
-        countOptions.where.question = { $like: search_like };
-    }
-
-    // Si existe req.user, mostrar solo sus preguntas.
-    if (req.user) {
-        countOptions.where.AuthorId = req.user.id;
-        title = "Preguntas de " + req.user.username;
+        countOptions.where = {question: { $like: search_like }};
     }
 
     models.Quiz.count(countOptions)
@@ -82,15 +52,13 @@ exports.index = function (req, res, next) {
 
         findOptions.offset = items_per_page * (pageno - 1);
         findOptions.limit = items_per_page;
-        findOptions.include = [{model: models.User, as: 'Author'}];
 
         return models.Quiz.findAll(findOptions);
     })
     .then(function (quizzes) {
         res.render('quizzes/index.ejs', {
             quizzes: quizzes,
-            search: search,
-            title: title
+            search: search
         });
     })
     .catch(function (error) {
@@ -105,7 +73,6 @@ exports.show = function (req, res, next) {
     res.render('quizzes/show', {quiz: req.quiz});
 };
 
-
 // GET /quizzes/new
 exports.new = function (req, res, next) {
 
@@ -118,16 +85,13 @@ exports.new = function (req, res, next) {
 // POST /quizzes/create
 exports.create = function (req, res, next) {
 
-    var authorId = req.session.user && req.session.user.id || 0;
-
     var quiz = models.Quiz.build({
         question: req.body.question,
-        answer: req.body.answer,
-        AuthorId: authorId
+        answer: req.body.answer
     });
 
     // guarda en DB los campos pregunta y respuesta de quiz
-    quiz.save({fields: ["question", "answer", "AuthorId"]})
+    quiz.save({fields: ["question", "answer"]})
     .then(function (quiz) {
         req.flash('success', 'Quiz creado con éxito.');
         res.redirect('/quizzes/' + quiz.id);
@@ -188,7 +152,7 @@ exports.destroy = function (req, res, next) {
     req.quiz.destroy()
     .then(function () {
         req.flash('success', 'Quiz borrado con éxito.');
-        res.redirect('/goback');
+        res.redirect('/quizzes');
     })
     .catch(function (error) {
         req.flash('error', 'Error al editar el Quiz: ' + error.message);
@@ -222,78 +186,71 @@ exports.check = function (req, res, next) {
         answer: answer
     });
 };
-exports.randomPlay = function(req, res, next){
 
-  if(!req.session.score){
-    req.session.score = 0;
-    req.session.respondidas = [];
-    req.session.respondidas[0] = 0;
-  }
+//Practica52
+exports.randomplay = function (req, res, next) {
 
-    var comprobar = true;
-    var contador = 0;
-
-    while(comprobar){
-
-        var qId = Math.floor(Math.random()*4 + 1);
-
-        for(var i in req.session.respondidas){
-            if(qId == req.session.respondidas[i]){
-                ++contador;
-            }
+    if(req.session.randomplay){
+        if(req.session.randomplay.resolved){
+            var usado = req.session.randomplay.resolved.length ? req.session.randomplay.resolved:[-1];
+        } else {
+            var auxiliar = []
+            req.session.randomplay.resolved=auxiliar;
         }
+    } else {
+        var auxplay={};
+        req.session.randomplay=auxplay;
+        var aux = []
+        req.session.randomplay.resolved=aux;
 
-        if(contador != 0){contador=0;}
-        else{comprobar = false;}
     }
 
-  req.session.respondidas.push(qId);
-  models.Quiz.findById(qId)
-  .then(function (quiz) {
-      if (quiz) {
-          var q = quiz;
-          res.render('quizzes/random_play',{
-            quiz: q,
-            score: req.session.score
-          });
-      } else {
-          throw new Error('No existe ningún quiz con id =' + qId);
-      }
-  })
-  .catch(function (error) {
-      next(error);
-  });
+    var usado = req.session.randomplay.resolved.length ? req.session.randomplay.resolved:[-1];
+    var whereopt = {'id': {$notIn: usado}};
+    models.Quiz.count()
+        .then(function (count) {
+            if(count === usado.length){
+                var score = req.session.randomplay.resolved.length;
+                req.session.randomplay.resolved=[];
+                res.render('quizzes/random_nomore', {score:score});
+                next();
+            }
+            var maximo = count - req.session.randomplay.resolved.length-1;
+            var aleatorio = Math.round(Math.random()*maximo);
+            var findOptions = {
+                where: whereopt,
+                offset: aleatorio,
+                limit: 1
+            };
+            return models.Quiz.findAll(findOptions);
+        })
+        .then(function (quiz) {
+
+            res.render('quizzes/random_play', {
+                quiz: quiz[0],
+                score: req.session.randomplay.resolved.length
+            });
+        })
+        .catch(function (error) {
+            next(error);
+        });
 
 };
 
-exports.randomCheck = function (req, res, next){
-
-var answer = req.query.answer || "";
-
-  var result = answer.toLowerCase().trim() === req.quiz.answer.toLowerCase().trim();
-
-  if(!result){
-    req.session.score = 0;
-    req.session.respondidas = [];
-    console.log("Reiniciando score...");
-  } else{
-    req.session.score++;
-    console.log("Aumentando score, ahora vale " + req.session.score);
-    if(req.session.respondidas.length > 4){
-      scoreFinal = req.session.score;
-      console.log("Abriendo vista de completado...");
-      req.session.score = 0;
-      req.session.respondidas = [];
-      res.render("quizzes/random_nomore", {
-        score: scoreFinal
-      });
-      return;
+//Get/quizzes/randomcheck
+exports.randomcheck = function (req, res, next) {
+    var answer = req.query.answer || "";
+    var result = answer.toLowerCase().trim() === req.quiz.answer.toLowerCase().trim();
+    if(result){
+        req.session.randomplay.resolved.push(parseInt(req.quiz.id));
     }
-  }
-  res.render("quizzes/random_result", {
-      result: result,
-      answer: answer,
-      score: req.session.score
-  });
-};
 
+
+    res.render('quizzes/random_result', {
+        score: req.session.randomplay.resolved.length,
+        quizId: req.quiz.id,
+        answer: answer,
+        result: result
+    });
+
+};
